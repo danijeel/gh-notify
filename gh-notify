@@ -31,6 +31,7 @@ tab      | toggle preview notification
 enter    | print notification and exit
 shift+↑↓ | scroll the preview up/ down
 ctrl+b   | open notification in browser
+ctrl+d   | view git diff
 ctrl+r   | mark all notifications as read and exit
 ctrl+x   | write a comment with the editor and exit
 esc      | exit
@@ -154,6 +155,7 @@ select_notif() {
         --header-first --bind "change:first" \
         --bind "?:toggle-preview+change-preview:printf \"Help\n%s\" \"$(help)\"" \
         --bind "ctrl-b:execute-silent:$open_notification_browser" \
+        --bind "ctrl-d:toggle-preview+change-preview:(DELTA_FEATURES=+no-side gh pr diff --repo {3} {5})" \
         --bind "tab:toggle-preview+change-preview:$preview_notification" \
         --preview-window wrap:"$preview_window_visibility":50%:right:border-left \
         --preview "$preview_notification" \
