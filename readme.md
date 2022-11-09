@@ -26,23 +26,23 @@ gh notify [-Flag]
 | -e     | exclude notifications matching a string (REGEX support) | gh notify -e "MyJob" |
 | -f     | filter notifications matching a string (REGEX support)  | gh notify -f "Repo"  |
 | -s     | print a static display                                  | gh notify -as        |
-| -n NUM | max number of notifications to show                     | gh notify -an        |
+| -n NUM | max number of notifications to show                     | gh notify -an 10     |
 | -p     | show only participating or mentioned notifications      | gh notify -ap        |
 | -w     | display the preview window in interactive mode          | gh notify -an 10 -w  |
 | -h     | show the help page                                      | gh notify -h         |
 
 ### HotKeys for interactive mode with Fuzzy Finder (fzf)
 
-| HotKey   | Description                              |
-| -------- | ---------------------------------------- |
-| ?        | toggle help                              |
-| tab      | toggle preview notification              |
-| enter    | print notification and exit              |
-| shift+↑↓ | scroll the preview up/ down              |
-| ctrl+b   | open notification in browser             |
-| ctrl+r   | mark all notifications as read and exit  |
-| ctrl+x   | write a comment with the editor and exit |
-| esc      | exit                                     |
+| HotKey   | Description                                       |
+| -------- | ------------------------------------------------- |
+| ?        | toggle help                                       |
+| tab      | toggle preview notification                       |
+| enter    | print notification and exit                       |
+| shift+↑↓ | scroll the preview up/ down                       |
+| ctrl+b   | open notification in browser                      |
+| ctrl+r   | mark all displayed notifications as read and exit |
+| ctrl+x   | write a comment with the editor and exit          |
+| esc      | exit                                              |
 
 ## Customizations
 

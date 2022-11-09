@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 set -e -o pipefail
 
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+# Enable terminal-style output even when the output is redirected.
+export GH_FORCE_TTY=100%
+# Disable the gh pager
+export GH_PAGER="cat"
+
+# NotificationReason:
+# assign, author, comment, invitation, manual, mention, review_requested, security_alert, state_change, subscribed, team_mention, ci_activity
+# NotificationSubjectTypes:
+# CheckSuite, Commit, Discussion, Issue, PullRequest, Release, RepositoryVulnerabilityAlert, ...
+
 help() {
     # IMPORTANT: keep it synchronized with the README, but without the Examples
-    # Leave one line empty at the beginning and end, and two between sections. Looks better
+    # Leave one line blank at the beginning and end, and two between sections. This looks cleaner.
     cat <<EOF
 
     gh notify [-Flag]
@@ -33,7 +46,7 @@ shift+↑↓ | scroll the preview up/ down
 ctrl+b   | open notification in browser
 ctrl+d   | view git diff
 ctrl+p   | view git patch
-ctrl+r   | mark all notifications as read and exit
+ctrl+r   | mark all notifications as read and exit and exit
 ctrl+x   | write a comment with the editor and exit
 esc      | exit
 
@@ -48,6 +61,9 @@ mark_read_flag='false'
 num_notifications='0'
 exclusion_string='XXX_BOGUS_STRING_THAT_SHOULD_NOT_EXIST_XXX'
 filter_string=''
+# UTC time ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ
+# https://docs.github.com/en/rest/overview/resources-in-the-rest-api#timezones
+timestamp=$(date +"%Y-%m-%dT%H:%M:%S%z")
 
 while getopts 'e:f:n:pawhsr' flag; do
     case "${flag}" in
@@ -80,23 +96,23 @@ get_notifs() {
         local_page_size=$num_notifications
     fi
     printf >&2 "." # "marching ants" because sometimes this takes a bit.
-    # timefmt must use the reference time Mon Jan 2 15:04:05 MST 2006 to format a given time
-    # Empty strings are colorized to keep the columns in line.
     gh api -X GET notifications --cache=20s \
         -f per_page="$local_page_size" -f all="$include_all_flag" -f participating="$only_participating_flag" -f page="$page_num" \
         --template '
     {{- range . -}}
+        {{- /* COMMENT: timefmt must use the reference time Mon Jan 2 15:04:05 MST 2006 to format a given time */ -}}
         {{- printf "%s\t%s\t%s\t" (timefmt "02/Jan 15:04" .updated_at | color "gray+h") .subject.type .subject.title -}}
-        {{- printf "%s\t" (.repository.full_name | color "blue+b") -}}
-        {{- if eq .subject.type "Release" -}} {{- printf "%s\t" ("✓" | color "green") -}}
-        {{- else -}} {{- printf "%s\t" (.subject.url | color "green") -}} {{- end -}}
-        {{- if .unread -}} {{- printf "%s\n" ("●" | color "magenta") -}}
-        {{- else -}} {{- printf "%s\n" (" " | color "magenta") -}} {{- end -}}
+        {{- printf "%s%s%s\t" (.repository.owner.login | color "cyan+h") ("/" | color "gray+h") (.repository.name | color "cyan+hb") -}}
+        {{- if .subject.url -}}{{- printf "%s\t" .subject.url -}}{{- end -}}
+        {{- if .unread -}}{{- printf "%s\n" ("●" | color "magenta") -}}
+            {{- /* COMMENT: Empty strings are colorized to keep the columns in line. */ -}}
+            {{- else -}}{{- printf "%s\n" (" " | color "magenta") -}}
+        {{- end -}}
     {{- end -}}'
 }
 
 print_notifs() {
-    local timefmt type title repo url unread
+    local timefmt type title repo url unread number
     all_notifs=""
     page_num=1
     while true; do
@@ -108,9 +124,19 @@ print_notifs() {
         fi
         new_notifs=$(
             echo "$page" | while IFS=$'\t' read -r timefmt type title repo url unread; do
-                # "${variable//search/replace}" keep the green color but remove everything between http and the very last slash symbol
-                # https://wiki.bash-hackers.org/syntax/pe
-                printf "\n%s\t%s\t%s %s %s\t%s\n" "${timefmt}" "${repo}" "${type}" "${url/http*\//#}" "${unread}" "${title}"
+                if grep -q "Commit" <<<"$type"; then
+                    number=$(basename "$url" | head -c 7)
+                elif grep -q "Release" <<<"$type"; then
+                    release_info=()
+                    while IFS='' read -r line; do release_info+=("$line"); done < <(gh api --cache=20s "$url" --jq '.tag_name, .prerelease')
+                    number="${release_info[0]}"
+                    "${release_info[1]}" && type="Pre-release"
+                else
+                    # gh api calls cost time, try to avoid them as much as possible
+                    # ${variable//search/replace} - https://wiki.bash-hackers.org/syntax/pe
+                    number=${url/*\//#}
+                fi
+                printf "\n%s\t%s\t%s ${GREEN}%s${NC} %s\t%s\n" "$timefmt" "$repo" "$type" "$number" "$unread" "$title"
             done
         )
         all_notifs="$all_notifs$new_notifs"
@@ -139,19 +165,21 @@ filtered_notifs() {
     print_notifs | grep -v "$exclusion_string" | grep "$filter_string"
 }
 
+mark_read() {
+    gh api -X PUT notifications -f last_read_at="$timestamp" -F read=true --silent
+}
+
 select_notif() {
     local notifs open_notification_browser preview_notification selection key repo type num
     notifs="$(filtered_notifs)"
     [ -n "$notifs" ] || exit 0
-    open_notification_browser='if grep -qE "Issue|PullRequest" <<<{4}; then gh issue view {5} -wR {3}; elif grep -q Release <<<{4}; then gh release view -wR {3}; else gh repo view -w {3}; fi'
-    preview_notification='echo \[{1} {2} - {4}\] ;if grep -q Issue <<<{4}; then gh issue view {5} -R {3} --comments; elif grep -q PullRequest <<<\"{4}\"; then gh pr view {5} -R {3} --comments; elif grep -q Release <<<{4}; then gh release view -R {3}; else echo "Notification preview for {4} is not supported."; fi'
-    # Enable terminal-style output even when the output is redirected.
-    export GH_FORCE_TTY=100%
+    open_notification_browser='if grep -q CheckSuite <<<{4}; then open https://github.com/{3}/actions ; elif grep -q Commit <<<{4}; then gh browse {5} -R {3} ; elif grep -q Discussion <<<{4}; then open https://github.com/{3}/discussions ; elif grep -qE "Issue|PullRequest" <<<{4}; then gh issue view {5} -wR {3}; elif grep -q "[Rr]elease" <<<{4}; then gh release view {5} -wR {3}; else gh repo view -w {3}; fi'
+    preview_notification='echo \[{1} {2} - {4}\] ;if grep -q Issue <<<{4}; then gh issue view {5} -R {3} --comments; elif grep -q PullRequest <<<\"{4}\"; then gh pr view {5} -R {3} --comments; elif grep -q "[Rr]elease" <<<{4}; then gh release view {5} -R {3}; else echo "Notification preview for {4} is not supported."; fi'
+
     # See the man page (man fzf) for an explanation of the arguments.
-    # TODO: Release types without a tag name show only the information about the latest release.
-    selection=$(fzf <<<"$notifs" --ansi --no-multi --reverse --info=inline \
-        --margin 2,1%,2,1% --pointer='▶' \
-        --border top --color "border:#778899" \
+    selection=$(fzf <<<"$notifs" --ansi --no-multi \
+        --reverse --info=inline --pointer='▶' \
+        --border horizontal --color "border:#778899" \
         --header $'? - Toggle Help\n\n' --color 'header:italic:dim' \
         --header-first --bind "change:first" \
         --bind "?:toggle-preview+change-preview:printf \"Help\n%s\" \"$(help)\"" \
@@ -167,14 +195,12 @@ select_notif() {
     read -r key _ _ repo type num _ <<<"$selection"
     [[ -n "$key" ]] && case "$key" in
     enter)
-        # Disable the gh pager
-        export GH_PAGER="cat"
         if grep -q "Issue" <<<"$type"; then
             gh issue view "$num" -R "$repo" --comments
         elif grep -q "PullRequest" <<<"$type"; then
             gh pr view "$num" -R "$repo" --comments
-        elif grep -q "Release" <<<"$type"; then
-            gh release view -R "$repo"
+        elif grep -q "[Rr]elease" <<<"$type"; then
+            gh release view "$num" -R "$repo"
         else
             echo "Notification preview for $type is not supported."
         fi
@@ -182,7 +208,7 @@ select_notif() {
     ctrl-r)
         # TODO Dynamically update the input list without restarting fzf
         # --bind 'ctrl-m:execute(gh api ...)+reload(...)'
-        gh api -X PUT notifications -F read=true --silent
+        mark_read
         ;;
     ctrl-x)
         if grep -qE "Issue|PullRequest" <<<"$type"; then
@@ -195,7 +221,7 @@ select_notif() {
 }
 
 if [[ $mark_read_flag == "true" ]]; then
-    gh api -X PUT notifications -F read=true --silent
+    mark_read
     exit 0
 fi
 
