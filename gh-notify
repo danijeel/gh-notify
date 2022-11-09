@@ -7,7 +7,7 @@ NC='\033[0m'
 # Enable terminal-style output even when the output is redirected.
 export GH_FORCE_TTY=100%
 # Disable the gh pager
-export GH_PAGER="cat"
+# export GH_PAGER="cat"
 
 # NotificationReason:
 # assign, author, comment, invitation, manual, mention, review_requested, security_alert, state_change, subscribed, team_mention, ci_activity
